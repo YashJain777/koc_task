@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-koc_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-koc_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-koc_arena}
+    ports:
+      # Host port 5440 to avoid clashing with a locally installed Postgres on 5432
+      - "${DB_HOST_PORT:-5440}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-koc_admin} -d ${POSTGRES_DB:-koc_arena}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://${POSTGRES_USER:-koc_admin}:${POSTGRES_PASSWORD:-koc_dev_password}@db:5432/${POSTGRES_DB:-koc_arena}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me}
+      JWT_TTL_SECONDS: 604800
+      WEB_ORIGIN: http://localhost:${WEB_PORT:-3000}
+      COOKIE_SECURE: "false"
+    ports:
+      - "${API_PORT:-4000}:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:4000
+        # The browser connects to the API's published port directly for WebSockets
+        NEXT_PUBLIC_SOCKET_URL: http://localhost:${API_PORT:-4000}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
